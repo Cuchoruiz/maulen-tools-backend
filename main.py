@@ -1,10 +1,40 @@
 import os
-from fastapi import FastAPI, Request, HTTPException
+import requests
+from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 
 app = FastAPI()
 
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "maulen_webhook_2026")
+META_VERSION = os.getenv("META_VERSION", "v25.0")
+PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "684796621390405")
+ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "maulen_webhook_2026")
+WHATSAPP_API_URL = f"https://graph.facebook.com/{META_VERSION}/{PHONE_NUMBER_ID}/messages"
+
+def normalize_phone(phone):
+    clean = phone.replace('@c.us', '').replace('@lid', '').replace('@g.us', '').replace('+', '').replace(' ', '').strip()
+    if clean.startswith('56'):
+        return clean
+    if clean.startswith('9'):
+        return '56' + clean
+    return '56' + clean
+
+def enviar_whatsapp(numero, mensaje):
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": normalize_phone(numero),
+        "type": "text",
+        "text": {"body": mensaje}
+    }
+    try:
+        resp = requests.post(WHATSAPP_API_URL, headers=headers, json=payload)
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/webhook/whatsapp")
 async def verify_webhook(request: Request):
@@ -12,7 +42,7 @@ async def verify_webhook(request: Request):
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
-    if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
+    if mode == "subscribe" and token == VERIFY_TOKEN:
         return PlainTextResponse(challenge)
     raise HTTPException(status_code=403, detail="Webhook verification failed")
 
@@ -20,4 +50,36 @@ async def verify_webhook(request: Request):
 async def receive_webhook(request: Request):
     data = await request.json()
     print("Webhook recibido:", data)
-    return {"status": "received"}
+    try:
+        entry = data.get("entry", [{}])[0]
+        changes = entry.get("changes", [{}])[0]
+        value = changes.get("value", {})
+        messages = value.get("messages", [])
+        contacts = value.get("contacts", [])
+        if messages and contacts:
+            msg = messages[0]
+            contact = contacts[0]
+            phone = contact.get("wa_id", "")
+            text = msg.get("text", {}).get("body", "")
+            print(f"📩 WhatsApp recibido de {phone}: {text}")
+            await procesar_respuesta_whatsapp(phone, text)
+        return {"status": "received"}
+    except Exception as e:
+        return {"error": str(e)}
+
+async def procesar_respuesta_whatsapp(phone, text):
+    phone_norm = normalize_phone(phone)
+    text_clean = text.strip().upper()
+    if text_clean in ["1", "SI", "SÍ"]:
+        enviar_whatsapp(phone_norm, "✅ Confirmación programada. Tu pedido se confirmará en 5 minutos.")
+    elif text_clean in ["2", "NO"]:
+        enviar_whatsapp(phone_norm, "Pedido cancelado según tu solicitud.")
+    elif text_clean == "3":
+        enviar_whatsapp(phone_norm, "Por favor, responde con tu nueva dirección completa.")
+    else:
+        enviar_whatsapp(phone_norm, "No entendí tu respuesta. Responde: 1 para confirmar, 2 para cancelar, 3 para cambiar dirección.")
+
+@app.get("/send_whatsapp")
+async def send_whatsapp(numero: str = Query(...), mensaje: str = Query(...)):
+    result = enviar_whatsapp(numero, mensaje)
+    return result
