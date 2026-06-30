@@ -261,7 +261,6 @@ async def verify_webhook(request: Request):
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
-    print(f"Webhook verification: mode={mode}, token={token}, challenge={challenge}")
     if mode == "subscribe" and token == VERIFY_TOKEN:
         return PlainTextResponse(challenge)
     raise HTTPException(status_code=403, detail="Webhook verification failed")
@@ -317,4 +316,4 @@ app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 if __name__ == "__main__":
     print("🚀 Iniciando DropiBot en http://localhost:8000")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
