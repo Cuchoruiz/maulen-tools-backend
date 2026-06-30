@@ -19,7 +19,8 @@ def normalize_phone(phone):
         return '56' + clean
     return '56' + clean
 
-def enviar_plantilla_confirmacion(numero, customer_name, product_name, total, address):
+def enviar_plantilla_confirmacion(numero, nombre_cliente, telefono_cliente, producto, direccion, total):
+    """Envía la plantilla aprobada 'confirmacion_de_pedidos' con 5 variables."""
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -29,16 +30,17 @@ def enviar_plantilla_confirmacion(numero, customer_name, product_name, total, ad
         "to": normalize_phone(numero),
         "type": "template",
         "template": {
-            "name": "confirmacion_pedido",
+            "name": "confirmacion_de_pedidos",
             "language": {"code": "es"},
             "components": [
                 {
                     "type": "body",
                     "parameters": [
-                        {"type": "text", "text": customer_name},
-                        {"type": "text", "text": product_name},
-                        {"type": "text", "text": total},
-                        {"type": "text", "text": address}
+                        {"type": "text", "text": nombre_cliente},
+                        {"type": "text", "text": telefono_cliente},
+                        {"type": "text", "text": producto},
+                        {"type": "text", "text": direccion},
+                        {"type": "text", "text": total}
                     ]
                 }
             ]
@@ -92,6 +94,9 @@ async def receive_webhook(request: Request):
             contact = contacts[0]
             phone = contact.get("wa_id", "")
             text = msg.get("text", {}).get("body", "")
+            # Si el mensaje viene de un botón, el texto puede ser el payload del botón
+            if not text and msg.get("type") == "button":
+                text = msg.get("button", {}).get("payload", "")
             print(f"📩 WhatsApp recibido de {phone}: {text}")
             await procesar_respuesta_whatsapp(phone, text)
         return {"status": "received"}
@@ -115,15 +120,17 @@ async def send_whatsapp(
     numero: str = Query(...),
     mensaje: str = Query(""),
     nombre: str = Query(None),
+    telefono: str = Query(None),
     producto: str = Query(None),
     total: str = Query(None),
     direccion: str = Query(None)
 ):
-    # Si vienen los parámetros de plantilla, usar plantilla
+    # Si vienen los parámetros de plantilla, usar plantilla (5 variables)
     if nombre and producto and total and direccion:
-        result = enviar_plantilla_confirmacion(numero, nombre, producto, total, direccion)
+        telefono_cliente = telefono if telefono else numero
+        result = enviar_plantilla_confirmacion(numero, nombre, telefono_cliente, producto, direccion, total)
         return result
     # Si no, enviar texto libre
     if mensaje:
         return enviar_whatsapp(numero, mensaje)
-    return {"error": "Faltan parámetros: usa 'mensaje' para texto libre o 'nombre','producto','total','direccion' para plantilla."}
+    return {"error": "Faltan parámetros: usa 'mensaje' para texto libre o 'nombre','telefono','producto','total','direccion' para plantilla."}
