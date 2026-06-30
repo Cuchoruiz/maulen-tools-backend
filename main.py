@@ -19,25 +19,7 @@ def normalize_phone(phone):
         return '56' + clean
     return '56' + clean
 
-def enviar_whatsapp(numero, mensaje):
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": normalize_phone(numero),
-        "type": "text",
-        "text": {"body": mensaje}
-    }
-    try:
-        resp = requests.post(WHATSAPP_API_URL, headers=headers, json=payload)
-        return resp.json()
-    except Exception as e:
-        return {"error": str(e)}
-
 def enviar_plantilla_confirmacion(numero, customer_name, product_name, total, address):
-    """Envía la plantilla preaprobada 'confirmacion_pedido'."""
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -61,6 +43,23 @@ def enviar_plantilla_confirmacion(numero, customer_name, product_name, total, ad
                 }
             ]
         }
+    }
+    try:
+        resp = requests.post(WHATSAPP_API_URL, headers=headers, json=payload)
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+def enviar_whatsapp(numero, mensaje):
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": normalize_phone(numero),
+        "type": "text",
+        "text": {"body": mensaje}
     }
     try:
         resp = requests.post(WHATSAPP_API_URL, headers=headers, json=payload)
@@ -112,17 +111,19 @@ async def procesar_respuesta_whatsapp(phone, text):
         enviar_whatsapp(phone_norm, "No entendí tu respuesta. Responde: 1 para confirmar, 2 para cancelar, 3 para cambiar dirección.")
 
 @app.get("/send_whatsapp")
-async def send_whatsapp(numero: str = Query(...), mensaje: str = Query(...)):
-    result = enviar_whatsapp(numero, mensaje)
-    return result
-
-@app.get("/send_template")
-async def send_template(
+async def send_whatsapp(
     numero: str = Query(...),
-    nombre: str = Query("Cliente"),
-    producto: str = Query("Producto"),
-    total: str = Query("$0"),
-    direccion: str = Query("Sin dirección")
+    mensaje: str = Query(""),
+    nombre: str = Query(None),
+    producto: str = Query(None),
+    total: str = Query(None),
+    direccion: str = Query(None)
 ):
-    result = enviar_plantilla_confirmacion(numero, nombre, producto, total, direccion)
-    return result
+    # Si vienen los parámetros de plantilla, usar plantilla
+    if nombre and producto and total and direccion:
+        result = enviar_plantilla_confirmacion(numero, nombre, producto, total, direccion)
+        return result
+    # Si no, enviar texto libre
+    if mensaje:
+        return enviar_whatsapp(numero, mensaje)
+    return {"error": "Faltan parámetros: usa 'mensaje' para texto libre o 'nombre','producto','total','direccion' para plantilla."}
