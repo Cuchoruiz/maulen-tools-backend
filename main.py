@@ -36,6 +36,38 @@ def enviar_whatsapp(numero, mensaje):
     except Exception as e:
         return {"error": str(e)}
 
+def enviar_plantilla_confirmacion(numero, customer_name, product_name, total, address):
+    """Envía la plantilla preaprobada 'confirmacion_pedido'."""
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": normalize_phone(numero),
+        "type": "template",
+        "template": {
+            "name": "confirmacion_pedido",
+            "language": {"code": "es"},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": customer_name},
+                        {"type": "text", "text": product_name},
+                        {"type": "text", "text": total},
+                        {"type": "text", "text": address}
+                    ]
+                }
+            ]
+        }
+    }
+    try:
+        resp = requests.post(WHATSAPP_API_URL, headers=headers, json=payload)
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/webhook/whatsapp")
 async def verify_webhook(request: Request):
     params = request.query_params
@@ -82,4 +114,15 @@ async def procesar_respuesta_whatsapp(phone, text):
 @app.get("/send_whatsapp")
 async def send_whatsapp(numero: str = Query(...), mensaje: str = Query(...)):
     result = enviar_whatsapp(numero, mensaje)
+    return result
+
+@app.get("/send_template")
+async def send_template(
+    numero: str = Query(...),
+    nombre: str = Query("Cliente"),
+    producto: str = Query("Producto"),
+    total: str = Query("$0"),
+    direccion: str = Query("Sin dirección")
+):
+    result = enviar_plantilla_confirmacion(numero, nombre, producto, total, direccion)
     return result
