@@ -16,8 +16,7 @@ WHATSAPP_API_URL = f"https://graph.facebook.com/{META_VERSION}/{PHONE_NUMBER_ID}
 DRY_RUN = os.getenv("DRY_RUN_DROPI", "true").lower() == "true"
 
 # ---------- ALMACENAMIENTO TEMPORAL (solo para pruebas) ----------
-# En producción, reemplazar por base de datos (Supabase, etc.)
-pending_confirmations = {}  # phone -> {order_id, nombre, producto, total, estado}
+pending_confirmations = {}
 
 # ---------- UTILIDADES ----------
 def normalize_phone(phone):
@@ -30,7 +29,7 @@ def normalize_phone(phone):
 
 # ---------- ENVÍO DE WHATSAPP (plantilla real) ----------
 def enviar_plantilla_confirmacion(numero, nombre, apellido, tienda, telefono_cli, producto, calle, comuna, region, total):
-    """Envía la plantilla 'confirmacion_de_pedidos' con los 9 parámetros correctos."""
+    """Envía la plantilla 'confirmacion_de_pedidos' con los 9 parámetros."""
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -41,7 +40,7 @@ def enviar_plantilla_confirmacion(numero, nombre, apellido, tienda, telefono_cli
         "type": "template",
         "template": {
             "name": "confirmacion_de_pedidos",
-            "language": {"code": "es_CL"},  # Spanish (CHL)
+            "language": {"code": "es"},  # ← CORREGIDO a "es"
             "components": [
                 {
                     "type": "body",
@@ -67,7 +66,7 @@ def enviar_plantilla_confirmacion(numero, nombre, apellido, tienda, telefono_cli
         return {"error": str(e)}
 
 def enviar_whatsapp(numero, mensaje):
-    """Envía un mensaje de texto libre (usado para respuestas rápidas)."""
+    """Envía un mensaje de texto libre."""
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
@@ -111,7 +110,6 @@ async def receive_webhook(request: Request):
             phone = contact.get("wa_id", "")
             text = None
             if msg.get("type") == "button":
-                # Obtener payload del botón, o el texto como fallback
                 text = msg.get("button", {}).get("payload", "") or msg.get("button", {}).get("text", "")
             elif msg.get("type") == "text":
                 text = msg.get("text", {}).get("body", "")
@@ -125,25 +123,17 @@ async def receive_webhook(request: Request):
 async def procesar_respuesta_whatsapp(phone, text):
     phone_norm = normalize_phone(phone)
     text_clean = text.strip().upper()
-    # Mapeo de respuestas antiguas (1, 2, 3) y nuevas (SI, NO, MODIFICAR DATOS)
     if text_clean in ["1", "SI"]:
-        # Confirmar pedido
         pedido = pending_confirmations.get(phone_norm)
         if pedido:
             if DRY_RUN:
                 print(f"🔒 DRY RUN: Pedido {pedido['order_id']} habría sido confirmado para {phone_norm}")
-                mensaje = "Perfecto, tu pedido fue confirmado. Lo prepararemos para despacho."
-            else:
-                # Aquí se conectará con Dropi en producción
-                mensaje = "Perfecto, tu pedido fue confirmado. Lo prepararemos para despacho."
+            mensaje = "Perfecto, tu pedido fue confirmado. Lo prepararemos para despacho."
             enviar_whatsapp(phone_norm, mensaje)
-            # Actualizar estado
             pending_confirmations[phone_norm]["estado"] = "confirmado_por_whatsapp"
-            # No eliminamos para poder ver el estado, pero en producción se podría limpiar
         else:
             enviar_whatsapp(phone_norm, "No encontramos tu pedido pendiente. Por favor, contáctanos directamente.")
     elif text_clean in ["2", "NO", "NO, MODIFICAR DATOS"]:
-        # Cancelar o modificar datos
         pedido = pending_confirmations.get(phone_norm)
         if pedido:
             pending_confirmations[phone_norm]["estado"] = "requiere_revision"
@@ -169,9 +159,7 @@ async def send_whatsapp(
     region: str = Query(""),
     total: str = Query(None)
 ):
-    # Si vienen datos de pedido, enviar la plantilla real
     if nombre and producto and total and telefono:
-        # Guardar relación para futura confirmación
         phone_norm = normalize_phone(numero)
         pending_confirmations[phone_norm] = {
             "order_id": order_id or "test",
@@ -180,12 +168,10 @@ async def send_whatsapp(
             "total": total,
             "estado": "esperando_confirmacion"
         }
-        # Enviar plantilla
         result = enviar_plantilla_confirmacion(
             numero, nombre, apellido, tienda, telefono, producto, calle, comuna, region, total
         )
         return result
-    # Si no, enviar mensaje de texto libre
     if mensaje:
         return enviar_whatsapp(numero, mensaje)
-    return {"error": "Faltan parámetros. Usa 'mensaje' para texto libre o los campos de pedido."}
+    return {"error": "Faltan parámetros."}
