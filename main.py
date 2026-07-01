@@ -234,6 +234,63 @@ async def procesar_respuesta_whatsapp(phone, text):
     else:
         enviar_whatsapp(phone_norm, "No entendí tu respuesta. Responde: 1 para confirmar, 2 para cancelar, 3 para cambiar dirección.")
 
+
+
+# ---------- DEBUG WHATSAPP CONFIG ----------
+@app.get("/debug/config")
+async def debug_config():
+    return {
+        "meta_version": META_VERSION,
+        "phone_number_id": PHONE_NUMBER_ID,
+        "waba_id": os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
+        "template_name": os.getenv("WHATSAPP_TEMPLATE_NAME", "confirmacion_de_pedidos"),
+        "template_language_env": os.getenv("WHATSAPP_TEMPLATE_LANG", ""),
+        "template_language_default_expected": "es_CL",
+        "whatsapp_api_url": WHATSAPP_API_URL,
+        "has_access_token": bool(ACCESS_TOKEN),
+        "dry_run_dropi": DRY_RUN,
+        "has_dropi_token": bool(DROPI_TOKEN)
+    }
+
+
+@app.get("/debug/routes")
+async def debug_routes():
+    return {
+        "routes": [route.path for route in app.routes]
+    }
+
+
+@app.get("/debug/templates")
+async def debug_templates():
+    waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+
+    if not waba_id:
+        return {
+            "success": False,
+            "message": "Falta WHATSAPP_BUSINESS_ACCOUNT_ID en Railway Variables"
+        }
+
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    url = f"https://graph.facebook.com/{META_VERSION}/{waba_id}/message_templates"
+    params = {
+        "fields": "name,language,status,category"
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=30)
+        return resp.json()
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e)
+        }
+# ---------- FIN DEBUG WHATSAPP CONFIG ----------
+
+
 @app.get("/send_whatsapp")
 async def send_whatsapp(
     numero: str = Query(...),
