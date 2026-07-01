@@ -10,6 +10,9 @@ PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "1173835815815400")
 ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "maulen_webhook_2026")
 WHATSAPP_API_URL = f"https://graph.facebook.com/{META_VERSION}/{PHONE_NUMBER_ID}/messages"
+WABA_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+TEMPLATE_NAME = os.getenv("WHATSAPP_TEMPLATE_NAME", "confirmacion_de_pedidos")
+TEMPLATE_LANGUAGE = os.getenv("WHATSAPP_TEMPLATE_LANG", "es_CL")
 
 DRY_RUN = os.getenv("DRY_RUN_DROPI", "true").lower() == "true"
 DROPI_TOKEN = os.getenv("DROPI_TOKEN", "")
@@ -91,8 +94,8 @@ def enviar_plantilla_confirmacion(numero, nombre, apellido, tienda, telefono_cli
         "to": normalize_phone(numero),
         "type": "template",
         "template": {
-            "name": "confirmacion_de_pedidos",
-            "language": {"code": "es_CL"},
+            "name": TEMPLATE_NAME,
+            "language": {"code": TEMPLATE_LANGUAGE},
             "components": [
                 {
                     "type": "body",
@@ -113,6 +116,8 @@ def enviar_plantilla_confirmacion(numero, nombre, apellido, tienda, telefono_cli
     }
 
     try:
+        print(f"🧩 Enviando template: {TEMPLATE_NAME} / idioma: {TEMPLATE_LANGUAGE}")
+        print("🧩 Payload template:", payload)
         resp = requests.post(WHATSAPP_API_URL, headers=headers, json=payload, timeout=30)
         return resp.json()
     except Exception as e:
@@ -132,6 +137,8 @@ def enviar_whatsapp(numero, mensaje):
     }
 
     try:
+        print(f"🧩 Enviando template: {TEMPLATE_NAME} / idioma: {TEMPLATE_LANGUAGE}")
+        print("🧩 Payload template:", payload)
         resp = requests.post(WHATSAPP_API_URL, headers=headers, json=payload, timeout=30)
         return resp.json()
     except Exception as e:
