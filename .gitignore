@@ -25,3 +25,4 @@ whatsapp-service/.wwebjs_auth/
 dist/
 build/
 .cache/
+main.py.backup-*
