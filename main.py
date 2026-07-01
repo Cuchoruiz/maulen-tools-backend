@@ -22,42 +22,97 @@ pending_confirmations = {}
 class DropiClient:
     BASE = "https://api.dropi.cl/api"
 
-    def __init__(self, token):
+    def __init__(self, token: str):
         self.token = token
         self.session = requests.Session()
-        self.session.get(
-            "https://app.dropi.cl/auth/login",
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
-            },
-            timeout=30
-        )
         self.session.headers.update({
             "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "es-419,es;q=0.7",
             "Content-Type": "application/json",
             "Origin": "https://app.dropi.cl",
             "Referer": "https://app.dropi.cl/",
-            "Priority": "u=1, i",
-            "Sec-Ch-Ua": '"Brave";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
-            "Sec-Gpc": "1",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0",
             "X-Authorization": f"Bearer {self.token}",
             "X-Captcha-Token": ""
         })
 
-    def confirm_order(self, order_id):
-        resp = self.session.put(
-            f"{self.BASE}/orders/myorders/{order_id}",
-            json={"status": "PENDIENTE"},
-            timeout=30
+    def _safe_json(self, response):
+        try:
+            return response.json()
+        except Exception:
+            return {"raw_text": response.text[:1200] if hasattr(response, "text") else ""}
+
+    def request(self, method: str, path: str, **kwargs):
+        if not self.token:
+            return {
+                "ok": False,
+                "status_code": 401,
+                "message": "DROPI_TOKEN no configurado",
+                "raw": None
+            }
+
+        url = path if str(path).startswith("http") else f"{self.BASE}{path}"
+
+        try:
+            response = self.session.request(method, url, timeout=25, **kwargs)
+            raw = self._safe_json(response)
+
+            return {
+                "ok": response.ok,
+                "status_code": response.status_code,
+                "message": "OK" if response.ok else f"Dropi respondió HTTP {response.status_code}",
+                "raw": raw
+            }
+
+        except requests.exceptions.Timeout:
+            return {
+                "ok": False,
+                "status_code": 408,
+                "message": "Timeout conectando con Dropi",
+                "raw": None
+            }
+
+        except Exception as e:
+            return {
+                "ok": False,
+                "status_code": 500,
+                "message": str(e),
+                "raw": None
+            }
+
+    def healthcheck(self):
+        # Consulta liviana. Si Dropi cambia este endpoint, no rompe la app:
+        # solo informa que la conexión no pudo verificarse.
+        return self.request("GET", "/orders/myorders", params={"page": 1, "limit": 1})
+
+    def get_order_status(self, order_id: str):
+        # Intento 1: endpoint directo por id.
+        first = self.request("GET", f"/orders/myorders/{order_id}")
+        if first.get("ok"):
+            return first
+
+        # Intento 2: búsqueda por parámetro, por si Dropi no soporta /{id}.
+        second = self.request("GET", "/orders/myorders", params={"search": order_id, "page": 1, "limit": 10})
+        if second.get("ok"):
+            return second
+
+        return {
+            "ok": False,
+            "status_code": first.get("status_code") or second.get("status_code"),
+            "message": "No se pudo obtener el estado del pedido en Dropi",
+            "raw": {
+                "direct": first,
+                "search": second
+            }
+        }
+
+    def confirm_order(self, order_id: str):
+        # Acción real. Solo debe llamarse cuando DRY_RUN_DROPI=false.
+        return self.request(
+            "PUT",
+            f"/orders/myorders/{order_id}",
+            json={"status": "PENDIENTE"}
         )
-        return resp.json()
+
 
 def confirm_order_in_dropi(order_id: str) -> dict:
     if not DROPI_TOKEN:
@@ -66,11 +121,15 @@ def confirm_order_in_dropi(order_id: str) -> dict:
     try:
         client = DropiClient(DROPI_TOKEN)
         result = client.confirm_order(order_id)
+        raw = result.get("raw") or {}
 
-        if result.get("isSuccess") is True:
-            return {"success": True, "message": "Pedido confirmado/liberado en Dropi", "raw": result}
+        if result.get("ok") and (raw.get("isSuccess") is True or raw.get("success") is True or raw.get("ok") is True):
+            return {"success": True, "message": "Pedido confirmado/liberado en Dropi", "raw": raw}
 
-        return {"success": False, "message": "Dropi no confirmó el pedido", "raw": result}
+        if result.get("ok"):
+            return {"success": True, "message": "Dropi respondió OK. Revisar raw para confirmar estado final.", "raw": raw}
+
+        return {"success": False, "message": result.get("message", "Dropi no confirmó el pedido"), "raw": result}
 
     except Exception as e:
         return {"success": False, "message": str(e), "raw": None}
@@ -234,6 +293,87 @@ async def procesar_respuesta_whatsapp(phone, text):
     else:
         enviar_whatsapp(phone_norm, "No entendí tu respuesta. Responde: 1 para confirmar, 2 para cancelar, 3 para cambiar dirección.")
 
+
+
+
+# ---------- DROPI SAFE ENDPOINTS ----------
+def get_dropi_client():
+    return DropiClient(DROPI_TOKEN)
+
+
+@app.get("/dropi/status")
+async def dropi_status():
+    base = {
+        "success": True,
+        "dry_run_dropi": DRY_RUN,
+        "has_dropi_token": bool(DROPI_TOKEN),
+        "mode": "safe",
+        "message": "Dropi configurado en modo seguro. No se ejecutan acciones reales mientras DRY_RUN_DROPI=true."
+    }
+
+    if not DROPI_TOKEN:
+        return {
+            **base,
+            "connected": False,
+            "dropi_check": None,
+            "message": "Falta DROPI_TOKEN en Railway. La app está lista, pero Dropi aún no está conectado."
+        }
+
+    check = get_dropi_client().healthcheck()
+
+    return {
+        **base,
+        "connected": bool(check.get("ok")),
+        "dropi_check": {
+            "ok": check.get("ok"),
+            "status_code": check.get("status_code"),
+            "message": check.get("message")
+        }
+    }
+
+
+@app.get("/dropi/orders/{order_id}/status")
+async def dropi_order_status(order_id: str):
+    if not DROPI_TOKEN:
+        return {
+            "success": False,
+            "order_id": order_id,
+            "message": "Falta DROPI_TOKEN en Railway.",
+            "raw": None
+        }
+
+    result = get_dropi_client().get_order_status(order_id)
+
+    return {
+        "success": bool(result.get("ok")),
+        "order_id": order_id,
+        "dry_run_dropi": DRY_RUN,
+        "status_code": result.get("status_code"),
+        "message": result.get("message"),
+        "raw": result.get("raw")
+    }
+
+
+@app.post("/dropi/orders/{order_id}/confirm")
+async def dropi_confirm_order(order_id: str):
+    if DRY_RUN:
+        return {
+            "success": True,
+            "dry_run": True,
+            "order_id": order_id,
+            "message": "DRY RUN activo: el pedido NO fue confirmado realmente en Dropi."
+        }
+
+    result = confirm_order_in_dropi(order_id)
+
+    return {
+        "success": bool(result.get("success")),
+        "dry_run": False,
+        "order_id": order_id,
+        "message": result.get("message"),
+        "raw": result.get("raw")
+    }
+# ---------- FIN DROPI SAFE ENDPOINTS ----------
 
 
 # ---------- DEBUG WHATSAPP CONFIG ----------
