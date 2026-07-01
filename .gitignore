@@ -1,4 +1,27 @@
+# Sistema
+.DS_Store
+
+# Variables y secretos
 .env
+.env.*
+*.env
+.env.rtf
+*.rtf
+
+# Python
+__pycache__/
 *.pyc
-__pycache__
-.env
+venv/
+env/
+.venv/
+
+# Node / WhatsApp web local
+node_modules/
+whatsapp-service/node_modules/
+whatsapp-service/.wwebjs_cache/
+whatsapp-service/.wwebjs_auth/
+
+# Builds / caches
+dist/
+build/
+.cache/
