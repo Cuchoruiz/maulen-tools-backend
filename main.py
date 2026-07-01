@@ -92,7 +92,7 @@ def enviar_plantilla_confirmacion(numero, nombre, apellido, tienda, telefono_cli
         "type": "template",
         "template": {
             "name": "confirmacion_de_pedidos",
-            "language": {"code": "es"},
+            "language": {"code": "es_CL"},
             "components": [
                 {
                     "type": "body",
